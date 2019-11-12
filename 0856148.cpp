@@ -33,6 +33,7 @@ omp_lock_t gLock;
 omp_lock_t master_lock;
 bool want_exit = false;
 int NUM_THREADS = 0;
+int read_flag = 0;
 //-----------------------------
 
 
@@ -104,42 +105,45 @@ int main(){
 							}
 
 							//update server.txt
-							vector<string> field_vector;
-							string server_tuple_space_update = "(";
-							string tuple_temp ;
-							for( vector<vector<string> >::iterator iter_tuple_space = tuple_space.begin(); 
-								iter_tuple_space< tuple_space.end(); 
-								++iter_tuple_space){
-								field_vector = *iter_tuple_space;		//get tuple from tuple_space
-							
-								tuple_temp = "(";
-								int i = 0;
-								vector<string>::iterator iter_field_vector;			//dont know why can't put declare in for loop when there is two variable.
-								for(i = 0, iter_field_vector= field_vector.begin(); 
-									iter_field_vector< field_vector.end(); 
-									++iter_field_vector, ++i){
-										
-									tuple_temp += *iter_field_vector;
-									if(iter_field_vector+1 < field_vector.end())
-										tuple_temp += ",";
-									if(iter_field_vector+1 == field_vector.end())
-										tuple_temp += ")";
+							if(read_flag != true){
+								vector<string> field_vector;
+								string server_tuple_space_update = "(";
+								string tuple_temp ;
+								for( vector<vector<string> >::iterator iter_tuple_space = tuple_space.begin(); 
+									iter_tuple_space< tuple_space.end(); 
+									++iter_tuple_space){
+									field_vector = *iter_tuple_space;		//get tuple from tuple_space
+								
+									tuple_temp = "(";
+									int i = 0;
+									vector<string>::iterator iter_field_vector;			//dont know why can't put declare in for loop when there is two variable.
+									for(i = 0, iter_field_vector= field_vector.begin(); 
+										iter_field_vector< field_vector.end(); 
+										++iter_field_vector, ++i){
+											
+										tuple_temp += *iter_field_vector;
+										if(iter_field_vector+1 < field_vector.end())
+											tuple_temp += ",";
+										if(iter_field_vector+1 == field_vector.end())
+											tuple_temp += ")";
+									}
+									server_tuple_space_update += tuple_temp;
+									if(iter_tuple_space+1 < tuple_space.end())
+										server_tuple_space_update += ",";
+									if(iter_tuple_space+1 == tuple_space.end())
+										server_tuple_space_update += ")";
 								}
-								server_tuple_space_update += tuple_temp;
-								if(iter_tuple_space+1 < tuple_space.end())
-									server_tuple_space_update += ",";
-								if(iter_tuple_space+1 == tuple_space.end())
+								if(tuple_space.empty()){
 									server_tuple_space_update += ")";
+								}
+								master_fp.open(filename.c_str(),ios_base::out | ios::app);
+								//cout << "tuple has " <<server_tuple_space_update << endl;
+								omp_set_lock(&gLock);
+								master_fp << server_tuple_space_update<< endl ;
+								omp_unset_lock(&gLock);
+								master_fp.close();
 							}
-							if(tuple_space.empty()){
-								server_tuple_space_update += ")";
-							}
-							master_fp.open(filename.c_str(),ios_base::out | ios_base::trunc);
-							//cout << "tuple has " <<server_tuple_space_update << endl;
-							omp_set_lock(&gLock);
-							master_fp << server_tuple_space_update<< endl ;
-							omp_unset_lock(&gLock);
-							master_fp.close();
+							read_flag = false;
 						}
 					}
 					//cout <<"tuple space size: " << tuple_space.size() << endl;
@@ -213,7 +217,7 @@ int check_cmd_format(stringstream &cmd_line){
     //check operation
     if(cmd_line >> operation_check){
         //no operation
-    }else{
+    }else{	//there is no operation.  
 		cmd_line.clear();							//reuse stringstream ssmd.
 		cmd_line.seekg(0, cmd_line.beg);
         return 0;
@@ -301,10 +305,11 @@ bool match_tuple(stringstream &cmd_line){
     if(operation == "in"){	 //in_flag=1 means "in" operation.
         in_flag = 1;
     }
+
 	
 	//matching
 	//searching tuple space
-    vector<string> field_vector;
+    vector<string> field_vector;			
     for( vector<vector<string> >::iterator iter_tuple_space = tuple_space.begin(); 
 		iter_tuple_space< tuple_space.end(); 
 		++iter_tuple_space){
@@ -336,6 +341,9 @@ bool match_tuple(stringstream &cmd_line){
 			if(in_flag){	//it's in operation. got to delete target tuple from tuple space.
 				tuple_space.erase(iter_tuple_space);
 			}
+			if(operation == "read"){	
+				read_flag = true;	
+			}
 			//get tuple from tuple_space.
 			client_info[atoi(client_ID.c_str() )].got_tuple = "(";
 			for(i = 0, iter_field_vector= field_vector.begin(); 
@@ -346,7 +354,7 @@ bool match_tuple(stringstream &cmd_line){
 				if(Linda_template[i][0] =='?'){
 					map<string, string>::iterator iter;
 					iter = global_variable.find(Linda_template[i].substr(1,Linda_template[i].length() -1));
-					if(iter != global_variable.end() ){
+					if(iter != global_variable.end() ){		
 						iter->second = *iter_field_vector;   //overwrite exixt variable.
 						client_info[atoi(client_ID.c_str() )].got_tuple += *iter_field_vector;
 					}else{	
